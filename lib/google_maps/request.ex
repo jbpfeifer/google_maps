@@ -4,7 +4,7 @@ defmodule GoogleMaps.Request do
   @doc """
   GET an endpoint with param keyword list
   """
-  @spec get(String.t, keyword()) :: GoogleMaps.Response.t
+  @spec get(String.t(), keyword()) :: GoogleMaps.Response.t()
   def get(endpoint, params) do
     {secure, params} = Keyword.pop(params, :secure)
     {output, params} = Keyword.pop(params, :output, "json")
@@ -13,18 +13,44 @@ defmodule GoogleMaps.Request do
     {options, params} = Keyword.pop(params, :options, [])
 
     unless is_nil(secure) do
-      IO.puts "`secure` param is deprecated since Google requires request over SSL with API key."
+      IO.puts("`secure` param is deprecated since Google requires request over SSL with API key.")
     end
 
-    query = params
+    query =
+      params
       |> Keyword.put(:key, key)
       |> Enum.map(&transform_param/1)
       |> URI.encode_query()
 
-    url = Path.join("https://maps.googleapis.com/maps/api/#{endpoint}", output)
+    case endpoint do
+      "compute_route_distance" ->
+        query = "key=#{key}"
+        url = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-    requester().get("#{url}?#{query}", headers, options)
-    |> format_headers()
+        headers = [
+          {"Content-Type", "application/json"},
+          {"X-Goog-FieldMask", "routes.distanceMeters"}
+          | headers
+        ]
+
+        body =
+          %{
+            origin: format_location(Keyword.get(params, :origin)),
+            destination: format_location(Keyword.get(params, :destination)),
+            travelMode: get_travel_mode(Keyword.get(params, :mode, "driving")),
+            languageCode: Keyword.get(params, :language, "en-US"),
+            units: "METRIC"
+          }
+          |> Jason.encode!()
+
+        requester().post("#{url}?#{query}", body, headers, options)
+
+      _ ->
+        url = Path.join("https://maps.googleapis.com/maps/api/#{endpoint}", output)
+
+        requester().get("#{url}?#{query}", headers, options)
+        |> format_headers()
+    end
   end
 
   # Helpers
@@ -39,16 +65,14 @@ defmodule GoogleMaps.Request do
   end
 
   defp transform_param({type, {lat, lng}})
-  when type in [:origin, :destination]
-  and is_number(lat)
-  and is_number(lng)
-  do
+       when type in [:origin, :destination] and
+              is_number(lat) and
+              is_number(lng) do
     {type, "#{lat},#{lng}"}
   end
 
   defp transform_param({type, {:place_id, place_id}})
-  when type in [:origin, :destination]
-  do
+       when type in [:origin, :destination] do
     {type, "place_id:#{place_id}"}
   end
 
@@ -57,7 +81,7 @@ defmodule GoogleMaps.Request do
   end
 
   defp transform_param({:waypoints, waypoints})
-  when is_list(waypoints) do
+       when is_list(waypoints) do
     transform_param({:waypoints, Enum.join(waypoints, "|")})
   end
 
@@ -73,4 +97,32 @@ defmodule GoogleMaps.Request do
   end
 
   defp format_headers(error), do: error
+
+  # New helper functions
+  defp format_location({lat, lng}) when is_number(lat) and is_number(lng) do
+    %{
+      "location" => %{
+        "latLng" => %{
+          "latitude" => lat,
+          "longitude" => lng
+        }
+      }
+    }
+  end
+
+  defp format_location(address) when is_binary(address) do
+    %{
+      "address" => address
+    }
+  end
+
+  defp get_travel_mode(mode) do
+    case String.upcase(mode) do
+      "DRIVING" -> "DRIVE"
+      "WALKING" -> "WALK"
+      "BICYCLING" -> "BICYCLE"
+      "TRANSIT" -> "TRANSIT"
+      _ -> "DRIVE"
+    end
+  end
 end

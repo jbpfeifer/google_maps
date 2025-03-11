@@ -238,6 +238,10 @@ defmodule GoogleMaps do
   @doc """
   Finds the distance between two addresses.
 
+  Legacy distance matrix function using the older Google Distance Matrix API.
+  Consider using `distance/3` for newer implementations.
+
+
   ## Args:
     * `origins` — The starting point for calculating travel distance and time.
 
@@ -328,7 +332,8 @@ defmodule GoogleMaps do
     GoogleMaps.get("distancematrix", params)
   end
 
-  @spec distance([coordinate() | address()], [coordinate() | address()], options()) :: Response.t()
+  @spec distance([coordinate() | address()], [coordinate() | address()], options()) ::
+          Response.t()
   def distance(origins, destinations, options) do
     [origins, destinations] =
       [origins, destinations]
@@ -340,6 +345,59 @@ defmodule GoogleMaps do
       end)
 
     distance(origins, destinations, options)
+  end
+
+  @doc """
+  Calculate distance between two points using Google's Routes API v2.
+  This function uses the modern Routes API which provides more accurate distance calculations.
+
+  ## Args:
+    * `origin` — The starting point. Can be a string address (e.g., "Paris, France")
+      or coordinates tuple (e.g., {48.8566, 2.3522}).
+    * `destination` — The ending point. Same format as origin.
+
+  ## Options:
+    * `mode` (defaults to `driving`) — Specifies the mode of transport:
+      * `driving` - Calculate distance for driving route
+      * `walking` - Calculate distance for walking route
+      * `bicycling` - Calculate distance for cycling route
+      * `transit` - Calculate distance for public transit route
+
+    * `language` — The language code for the response (e.g., "en-US", "fr", "de").
+      See [supported languages](https://developers.google.com/maps/faq#languagesupport).
+
+  ## Returns
+    Returns `{:ok, response}` if successful, where response contains:
+    * `routes` - Array containing at least one route with:
+      * `distanceMeters` - Total distance in meters
+
+    Or `{:error, reason}` if request fails.
+
+  ## Examples
+      # Distance from Paris to London
+      iex> {:ok, result} = GoogleMaps.compute_route_distance("Paris, France", "London, UK")
+      iex> [route] = result["routes"]
+      iex> is_integer(route["distanceMeters"])
+      true
+
+      # Distance using coordinates
+      iex> {:ok, result} = GoogleMaps.compute_route_distance({48.8566, 2.3522}, {51.5074, -0.1278})
+      iex> [route] = result["routes"]
+      iex> is_integer(route["distanceMeters"])
+      true
+
+      # Walking distance with different language
+      iex> {:ok, result} = GoogleMaps.compute_route_distance("Paris", "Versailles", mode: "walking", language: "fr")
+      iex> [route] = result["routes"]
+      iex> is_integer(route["distanceMeters"])
+      true
+  """
+  def compute_route_distance(origin, destination, options \\ []) do
+    params =
+      options
+      |> Keyword.merge(origin: origin, destination: destination)
+
+    GoogleMaps.get("compute_route_distance", params)
   end
 
   @doc """

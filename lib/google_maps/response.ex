@@ -1,21 +1,40 @@
 defmodule GoogleMaps.Response do
   @moduledoc false
 
-  @type t :: {:ok, map()} | {:error, error()} | {:error, error(), String.t()}
+  @type t :: {:ok, map()} | {:error, any()} | {:error, String.t(), String.t()}
 
-  @type status :: String.t
+  @type status :: String.t()
 
-  @type error :: HTTPoison.Error.t | status()
+  @type error :: HTTPoison.Error.t() | status()
 
-  def wrap({:error, error}), do: {:error, error}
-  def wrap({:ok, %{body: body, headers: %{"Content-Type" => "application/json" <> _}} = response})
-  when is_binary(body) do
-    wrap({:ok, %{response | body: Jason.decode!(body)}})
+  @spec wrap(tuple()) :: t()
+  def wrap({:ok, %{status_code: 200, body: body} = response}) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"error" => error}} ->
+        {:error, error["status"], error["message"]}
+
+      {:ok, decoded} when is_map(decoded) ->
+        # Handle both classic Maps API and new Routes API responses
+        case decoded do
+          %{"status" => "OK"} ->
+            {:ok, decoded}
+
+          %{"routes" => _} ->
+            # New Routes API response doesn't include a status field
+            {:ok, decoded}
+
+          %{"status" => status, "error_message" => message} ->
+            {:error, status, message}
+
+          %{"status" => status} ->
+            {:error, status}
+        end
+
+      _ ->
+        {:ok, response}
+    end
   end
-  def wrap({:ok, %{body: %{"status" => "OK"} = body}}), do: {:ok, body}
-  def wrap({:ok, %{body: %{"status" => status, "error_message" => error_message}}}), do: {:error, status, error_message}
-  def wrap({:ok, %{body: %{"status" => status}}}), do: {:error, status}
-  def wrap({:ok, %{body: body, status_code: 200, headers: %{"Content-Type" => "image" <> _}}})
-  when is_binary(body), do: {:ok, body}
-  def wrap({:ok, %{status_code: status, headers: %{"Content-Type" => _}}}), do: {:error, status}
+
+  def wrap({:ok, response}), do: {:ok, response}
+  def wrap({:error, error}), do: {:error, error}
 end
